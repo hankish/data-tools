@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <title>Top Google Result Searcher</title>
+
+    <link
+      href="https://fonts.googleapis.com/css?family=Public+Sans:100,100i,200,200i,300,300i,400,
+        400i,500,500i,600,600i,700,700i,800,800i,900,900i&display=swap"
+      rel="stylesheet"
+    >
+
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+
+        font-family: 'Public Sans', sans-serif;
+        font-size: 16px;
+        color: #161616;
+      }
+    </style>
+  </head>
+
+  <body>
+
+    <top-google-result></top-google-result>
+
+    <script type="module">
+
+      import { LitElement, html, css } from 'https://unpkg.com/lit-element?module';
+      import 'https://unpkg.com/@material/mwc-top-app-bar-fixed?module';
+      import 'https://unpkg.com/@material/mwc-button?module';
+      import 'https://unpkg.com/@material/mwc-textfield?module';
+      import 'https://unpkg.com/@material/mwc-textarea?module';
+      import 'https://unpkg.com/@material/mwc-snackbar?module';
+      import 'https://unpkg.com/@material/mwc-linear-progress?module';
+
+      // #=== SETTINGS ===#
+
+      const SERP_API_BASE = 'http://api.serpstack.com/search';
+      const API_KEY_PARAM = 'access_key';
+      const SEARCH_QUERY_PARAM = 'query';
+      const API_KEY_LOCAL_STORAGE_KEY = 'gsDataTool_ApiKey';
+
+      // #=== MAIN APP ===#
+
+      class TopGoogleResult extends LitElement {
+
+        // #=== PROPERTIES ===#
+
+        static get properties() {
+          return {
+            apiKey: { type: String },
+            inputItems: { type: Array },
+            outputItems: { type: Array },
+            running: { type: Boolean },
+            progress: { type: Number },
+          }
+        }
+
+        // #=== LIFECYCLE ===#
+
+        constructor() {
+          super();
+
+          this.apiKey = localStorage.getItem(API_KEY_LOCAL_STORAGE_KEY);
+          this.inputItems = [];
+          this.outputItems = [];
+          this.running = false;
+          this.progress = 0;
+        }
+
+        // #=== EVENTS & ACTIONS ===#
+
+        async _runQuery() {
+          this.apiKey = this.shadowRoot.getElementById('apiKeyText').value;
+          let inputItemText = this.shadowRoot.getElementById('inputItemText').value;
+          
+          if (!this.apiKey || !inputItemText) {
+            alert('ERROR: You must enter an API Key and at least one company name');
+            return true;
+          }
+
+          // Save API key in local storage
+          localStorage.setItem(API_KEY_LOCAL_STORAGE_KEY, this.apiKey);
+
+          this.running = true;
+          this.progress = 0;
+          this.inputItems = inputItemText.split('\n');
+          this.outputItems = [];
+          
+          for (let i = 0; i < this.inputItems.length; i++) {
+            try {
+              let response = await fetch(
+                `${SERP_API_BASE}?${API_KEY_PARAM}=${this.apiKey}`
+                + `&${SEARCH_QUERY_PARAM}=${this.inputItems[i]}`
+              );
+              let jsonResponse = await response.json();
+              
+              let newItem = {
+                query: jsonResponse.search_parameters.query,
+                title1: jsonResponse.organic_results[0].title,
+                url1: jsonResponse.organic_results[0].url,
+              };
+              if (jsonResponse.knowledge_graph && jsonResponse.knowledge_graph.title) {
+                newItem = {...newItem,
+                  kg_title: jsonResponse.knowledge_graph.title,
+                  kg_website: jsonResponse.knowledge_graph.website,
+                  kg_type: jsonResponse.knowledge_graph.type,
+                  kg_address: jsonResponse.knowledge_graph.address,
+                  kg_phone: jsonResponse.knowledge_graph.phone,
+                  kg_description: jsonResponse.knowledge_graph.description,
+                };
+              }
+
+              this.outputItems = [...this.outputItems, newItem];
+              this.progress = this.outputItems.length / this.inputItems.length;
+            } catch(e) {
+              this.outputItems = [...this.outputItems, {
+                query: this.inputItems[i],
+                title1: `ERROR: ${e}`,
+              }];
+              this.progress = this.outputItems.length / this.inputItems.length;
+            }
+          }
+
+          this.running = false;
+        }
+
+        _exportItems() {
+          this.writeToCsv(this.outputItems, [
+            'query',
+            'title1',
+            'url1',
+            'kg_title',
+            'kg_website',
+            'kg_type',
+            'kg_address',
+            'kg_phone',
+            'kg_description',
+          ]);
+        }
+
+        _copyColumn(e) {
+          this.copyToClipboard(
+            this.outputItems
+              .map(item => item[e.target.dataset.key])
+              .join('\r\n')
+          );
+        }
+
+        // #=== HELPERS ===#
+
+        copyToClipboard(text) {
+          const tempElement = document.createElement('textarea');
+
+          tempElement.value = text;
+          tempElement.setAttribute('readonly', '');
+          tempElement.style.position = 'absolute';
+          tempElement.style.left = '-9999px';
+
+          document.body.appendChild(tempElement);
+          tempElement.select();
+          document.execCommand('copy');
+          document.body.removeChild(tempElement);
+
+          this.shadowRoot.querySelector('#copyToClipboardSnackbar').open();
+        };
+
+        // Objects should be array of objects, keys array of keys for columns 
+        writeToCsv(objects, keys) {
+          let csvContent = 'data:text/csv;charset=utf-8,'
+            + keys.join(',') + '\r\n'
+            + objects.map(object => {
+              return keys.map(key => {
+                // Replace double quotes with two double quotes
+                let value = (object[key] || '').replace(/"/g, '""');
+
+                // Surround value with double quotes if it contains special characters
+                return (value.search(/[",#\n]/g) >= 0) ? `"${value}"` : value;
+              }).join(',');
+            }).join('\r\n')
+          var encodedUri = encodeURI(csvContent);
+          window.open(encodedUri);
+        }
+
+        // #=== STYLES ===#
+
+        static get styles() {
+          return css`
+            mwc-top-app-bar-fixed {
+              --mdc-theme-primary: #0E70E0;
+              --mdc-theme-on-primary: white;
+            }
+
+            #header {
+              display: flex;
+              background: #F6F2FF;
+            }
+
+            #fields {
+              list-style: none;
+              margin: 0;
+              padding: 0;
+            }
+            #fields > li {
+              padding: 0;
+              margin: 2rem;
+            }
+            #fields > li > mwc-textfield, #fields > li > mwc-textarea {
+              width: 40rem;
+            }
+
+            #actions {
+              margin: 2rem 0 0 0;
+            }
+            mwc-linear-progress {
+              width: 20rem;
+              margin-top: 0.9rem;
+            }
+
+            #outputTable {
+              width: 100%;
+              border-collapse: collapse;
+            }
+            #outputTable th {
+              padding: 1rem 2rem;
+              text-align: left;
+              border-bottom: 1px solid #D4BBFF;
+              background: #E8DAFF;
+            }
+            #outputTable td {
+              padding: 0.5rem 2rem;
+              text-align: left;
+            }
+
+            #tableFooter {
+              display: flex;
+              align-items: center;
+
+              padding: 2rem;
+              text-right: left;
+              border-top: 1px solid #D4BBFF;
+              background: #E8DAFF;
+            }
+            #tableFooter .label {
+              flex: 1 1 auto;
+
+              font-weight: 600;
+              font-size: 1.1rem;
+            }
+          `;
+        }
+
+        // #=== TEMPLATES ===#
+
+        get renderTable() {
+          return html`
+            <div id="tableWrapper">
+              <table id="outputTable">
+                <thead>
+                  <th>
+                    Query
+                    (<a href="#" @click="${this._copyColumn}") data-key="query">Copy Column</a>)
+                  </th>
+                  <th>
+                    First Result: Title
+                    (<a href="#" @click="${this._copyColumn}") data-key="title1">Copy Column</a>)
+                  </th>
+                  <th>
+                    First Result: URL
+                    (<a href="#" @click="${this._copyColumn}") data-key="url1">Copy Column</a>)
+                  </th>
+                  <th>
+                    Knowledge Graph: Title
+                    (<a href="#" @click="${this._copyColumn}") data-key="kg_title">Copy Column</a>)
+                  </th>
+                  <th>
+                    Knowledge Graph: Website
+                    (<a href="#" @click="${this._copyColumn}") data-key="kg_website">Copy Column</a>)
+                  </th>
+                  <th>
+                    Knowledge Graph: Type
+                    (<a href="#" @click="${this._copyColumn}") data-key="kg_type">Copy Column</a>)
+                  </th>
+                  <th>
+                    Knowledge Graph: Address
+                    (<a href="#" @click="${this._copyColumn}") data-key="kg_address">Copy Column</a>)
+                  </th>
+                  <th>
+                    Knowledge Graph: Phone
+                    (<a href="#" @click="${this._copyColumn}") data-key="kg_phone">Copy Column</a>)
+                  </th>
+                  <th>
+                    Knowledge Graph: Description
+                    (<a href="#" @click="${this._copyColumn}") data-key="kg_description">Copy Column</a>)
+                  </th>
+                </thead>
+                <tbody>
+                  ${this.outputItems.map(item => html`
+                    <tr>
+                      <td>${item.query}</td>
+                      <td>${item.title1}</td>
+                      <td>${item.url1}</td>
+                      <td>${item.kg_title}</td>
+                      <td>${item.kg_website}</td>
+                      <td>${item.kg_type}</td>
+                      <td>${item.kg_address}</td>
+                      <td>${item.kg_phone}</td>
+                      <td>${item.kg_description}</td>
+                    </tr>
+                  `)}
+                </tbody>
+              </table>
+              <div id="tableFooter">
+                <div class="label">
+                  Export Current Items
+                </div>
+                ${this.outputItems && this.outputItems.length
+                  ? html`
+                    <mwc-button
+                      label="Export to CSV"
+                      @click="${this._exportItems}"
+                      outlined
+                    ></mwc-button>
+                  `
+                  : html``
+                }
+              </div>
+            </div>
+          `;
+        }
+
+        render() {
+          return html`
+            <!-- SNACKBAR -->
+            <mwc-snackbar
+            id="copyToClipboardSnackbar"
+            labelText="Text copied to clipboard."
+            ></mwc-snackbar>
+            
+            <mwc-top-app-bar-fixed>
+              <div slot="title">Top Google Result Searcher</div>
+
+              <!-- BODY -->
+              <div>
+
+                <!-- HEADER -->
+                <div id="header">
+                  <ul id="fields">
+                    <li>
+                      <mwc-textfield
+                        id="apiKeyText"
+                        label="Serpstack API Key"
+                        .value=${this.apiKey}
+                        outlined
+                      ></mwc-textfield>
+                    </li>
+                    <li>
+                      <mwc-textarea
+                        id="inputItemText"
+                        label="Company Names"
+                        helper="Enter a list of company names, one per line"
+                        rows="10"
+                        outlined
+                      ></mwc-textarea>
+                    </li>
+                  </ul>
+                  
+                  <div id="actions">
+                    <mwc-button
+                      @click="${this._runQuery}"
+                      raised
+                      ?disabled=${this.running}
+                    >
+                      Run Query
+                    </mwc-button>
+                    <mwc-linear-progress
+                      .progress=${this.progress}
+                      ?closed=${!this.running}
+                    ></mwc-linear-progress>
+                  </div>
+                </div>
+
+                <!-- TABLE -->
+                ${this.outputItems && this.outputItems.length
+                  ? this.renderTable
+                  : html``
+                }
+                
+              </div>
+            </mwc-top-app-bar-fixed>
+
+          `;
+        }
+      }
+
+      customElements.define('top-google-result', TopGoogleResult);
+
+    </script>
+
+  </body>
+
+</html>
