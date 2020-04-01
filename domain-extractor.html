@@ -42,7 +42,7 @@
       // This regex captures url pieces STARTING with the first one that's longer than 3 characters.
       // Example: 'http://cdn2.app.mizuho-fg.co.jp/abc' => GROUP 3 = 'mizuho-fg.co.jp'
       const URL_REGEX_1
-        = /(\w+:\/\/)?([a-z0-9\-_]+\.)*([a-z0-9\-_]{4,}(\.[a-z0-9\-_]{1,3})+)([/#\?].*)?/;
+        = /(\w+:\/\/)?([a-z0-9\-_]+\.)*([a-z0-9\-_]{4,}(\.[a-z0-9\-_]{1,20})+)([/#\?].*)?/;
 
       // #=== REGEX 2 ===#
       // This regex captures ALL url pieces except for the initial www and is for urls that have 
